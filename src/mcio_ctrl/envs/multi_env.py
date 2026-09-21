@@ -5,13 +5,14 @@ per-env step() in sequence deadlocks. This wrapper sends every action first, the
 every observation.
 """
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any, Generic
 
-from .base_env import MCioBaseEnv, ResetOptions, ObsType
+from .base_env import ActType, MCioBaseEnv, ObsType, ResetOptions
 
 
-class MCioMultiEnv:
-    def __init__(self, envs: list[MCioBaseEnv]) -> None:
+class MCioMultiEnv(Generic[ObsType, ActType]):
+    def __init__(self, envs: Sequence[MCioBaseEnv[ObsType, ActType]]) -> None:
         assert len(envs) > 0
         self.envs = envs
 
@@ -20,8 +21,8 @@ class MCioMultiEnv:
 
     def send_actions(
         self,
-        actions: list[dict[str, Any]],
-        options: list[ResetOptions] | None = None,
+        actions: Sequence[ActType],
+        options: Sequence[ResetOptions] | None = None,
     ) -> None:
         assert len(actions) == len(self.envs)
         assert options is None or len(options) == len(self.envs)
@@ -32,16 +33,16 @@ class MCioMultiEnv:
 
     def recv_steps(
         self,
-        actions: list[dict[str, Any]],
-    ) -> list[tuple[Any, int, bool, bool, dict[Any, Any]]]:
+        actions: Sequence[ActType],
+    ) -> list[tuple[ObsType, int, bool, bool, dict[Any, Any]]]:
         assert len(actions) == len(self.envs)
         return [env.end_step(action) for env, action in zip(self.envs, actions)]
 
     def step(
         self,
-        actions: list[dict[str, Any]],
-        options: list[ResetOptions] | None = None,
-    ) -> list[tuple[Any, int, bool, bool, dict[Any, Any]]]:
+        actions: Sequence[ActType],
+        options: Sequence[ResetOptions] | None = None,
+    ) -> list[tuple[ObsType, int, bool, bool, dict[Any, Any]]]:
         self.send_actions(actions, options)
         return self.recv_steps(actions)
 
@@ -50,7 +51,7 @@ class MCioMultiEnv:
             env.close()
 
     def skip_steps(
-            self, n_steps: int
+        self, n_steps: int
     ) -> list[tuple[ObsType, int, bool, bool, dict[Any, Any]]]:
         """Advance n server ticks with empty actions on every env, in lockstep"""
         assert n_steps > 0
@@ -64,10 +65,10 @@ class MCioMultiEnv:
         ]
 
     def reset(
-            self,
-            seeds: Sequence[int | None] | None = None,
-            options: Sequence[ResetOptions] | None = None,
-            max_respawn_steps: int = 100,
+        self,
+        seeds: Sequence[int | None] | None = None,
+        options: Sequence[ResetOptions] | None = None,
+        max_respawn_steps: int = 100,
     ) -> list[tuple[ObsType, dict[Any, Any]]]:
         """Reset every env together, then tick all of them until everyone has respawned."""
         seeds = seeds or [None] * len(self.envs)
@@ -84,7 +85,9 @@ class MCioMultiEnv:
             for env in self.envs:
                 if env.health > 0.0:
                     env.terminated = False
-            results = [(obs, env._get_info()) for env, (obs, *_) in zip(self.envs, steps)]
+            results = [
+                (obs, env._get_info()) for env, (obs, *_) in zip(self.envs, steps)
+            ]
         else:
             raise RuntimeError(
                 f"Environments remained terminated after {max_respawn_steps} steps."

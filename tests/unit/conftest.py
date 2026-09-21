@@ -1,11 +1,11 @@
 from unittest.mock import MagicMock
 
-import glfw  # type: ignore
 import numpy as np
 import pytest
 
-from mcio_ctrl import network, types
+from mcio_ctrl import types
 from mcio_ctrl.envs import mcio_env
+
 
 @pytest.fixture
 def default_mcio_env() -> mcio_env.MCioEnv:

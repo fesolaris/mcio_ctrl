@@ -1,11 +1,11 @@
 from unittest.mock import MagicMock
 
 import glfw  # type: ignore
-import numpy as np
 import pytest
 
 from mcio_ctrl import network, types
 from mcio_ctrl.envs import mcio_env
+
 
 def test_action_fixture_is_valid(
     default_mcio_env: mcio_env.MCioEnv, action_space_sample1: mcio_env.MCioAction
@@ -74,7 +74,9 @@ def test_skip_steps_zero(mock_controller: dict[str, MagicMock]) -> None:
         env.skip_steps(0)
 
 
-@pytest.mark.xfail(strict=True, reason="begin_step() pending-action tracking not implemented")
+@pytest.mark.xfail(
+    strict=True, reason="begin_step() pending-action tracking not implemented"
+)
 def test_end_step_without_begin_step(mock_controller: dict[str, MagicMock]) -> None:
     env = mcio_env.MCioEnv(types.RunOptions(mcio_mode=types.MCioMode.SYNC))
     env.reset()
@@ -82,7 +84,9 @@ def test_end_step_without_begin_step(mock_controller: dict[str, MagicMock]) -> N
         env.end_step()  # type: ignore[call-arg]
 
 
-@pytest.mark.xfail(strict=True, reason="begin_step() pending-action tracking not implemented")
+@pytest.mark.xfail(
+    strict=True, reason="begin_step() pending-action tracking not implemented"
+)
 def test_begin_step_twice(
     mock_controller: dict[str, MagicMock], action_space_sample1: mcio_env.MCioAction
 ) -> None:

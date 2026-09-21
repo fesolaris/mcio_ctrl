@@ -12,7 +12,7 @@ SEND = "send_action"
 RECV = "recv_observation"
 
 
-def _make_multi(n_envs: int = 2) -> multi_env.MCioMultiEnv:
+def _make_multi(n_envs: int = 2) -> multi_env.MCioMultiEnv[Any, Any]:
     envs: list[base_env.MCioBaseEnv[Any, Any]] = [
         mcio_env.MCioEnv(types.RunOptions(mcio_mode=types.MCioMode.SYNC))
         for _ in range(n_envs)
@@ -46,9 +46,7 @@ def test_step_length_mismatch(
     with pytest.raises(AssertionError):
         multi.step([action_space_sample1])
     with pytest.raises(AssertionError):
-        multi.step(
-            [action_space_sample1] * 2, options=[base_env.ResetOptions()]
-        )
+        multi.step([action_space_sample1] * 2, options=[base_env.ResetOptions()])
 
 
 def test_step_terminated_sends_nothing(

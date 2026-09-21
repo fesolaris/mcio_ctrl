@@ -175,7 +175,7 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
         self.stats_cache.update_cache(packet)
 
     def begin_reset(
-            self, seed: int | None = None, options: ResetOptions | None = None
+        self, seed: int | None = None, options: ResetOptions | None = None
     ) -> None:
         """Connect/launch and send the reset action. Pair with end_reset()."""
         super().reset(seed=seed)
@@ -255,16 +255,14 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
 
         return observation
 
-    def begin_step(
-            self, action: ActType, options: ResetOptions | None = None
-    ) -> None:
+    def begin_step(self, action: ActType, options: ResetOptions | None = None) -> None:
         """Send the action. Does not receive the observation."""
         options = options or ResetOptions()
         assert not self.terminated, "Must call reset() after termination"
         self._send_action(action, options.get("commands"))
 
     def end_step(
-            self, action: ActType
+        self, action: ActType
     ) -> tuple[ObsType, int, bool, bool, dict[Any, Any]]:
         """Receive the observation produced by the action sent in begin_step()."""
         observation = self._get_obs()
@@ -273,9 +271,11 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
         return observation, reward, self.terminated, truncated, info
 
     def step(
-            self, action: ActType, *, options: ResetOptions | None = None
+        self, action: ActType, *, options: ResetOptions | None = None
     ) -> tuple[ObsType, int, bool, bool, dict[Any, Any]]:
-        """Env step function. Includes extra options arg to allow command to be sent during step."""
+        """Env step function. Includes extra options arg to allow command to be sent during step.
+        Note: Must not be used on a client connected on a server using SYNC. Use MCioMultiEnv instead.
+        """
         self.begin_step(action, options)
         return self.end_step(action)
 
