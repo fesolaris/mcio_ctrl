@@ -7,41 +7,6 @@ import pytest
 from mcio_ctrl import network, types
 from mcio_ctrl.envs import mcio_env
 
-
-@pytest.fixture
-def default_mcio_env() -> mcio_env.MCioEnv:
-    return mcio_env.MCioEnv(types.RunOptions())
-
-
-@pytest.fixture
-def action_space_sample1(default_mcio_env: mcio_env.MCioEnv) -> mcio_env.MCioAction:
-    act = default_mcio_env.get_noop_action()
-    act.update(
-        {
-            "cursor_delta": np.array([827, 22], dtype=np.int32),
-            "A": 1,
-            "W": 0,
-            "LEFT_SHIFT": 1,
-            "LEFT_BUTTON": 1,
-        }
-    )
-    return act
-
-
-@pytest.fixture
-def mock_controller(monkeypatch: pytest.MonkeyPatch) -> dict[str, MagicMock]:
-    mock_ctrl_sync = MagicMock()
-    mock_ctrl_async = MagicMock()
-    monkeypatch.setattr("mcio_ctrl.controller.ControllerSync", mock_ctrl_sync)
-    monkeypatch.setattr("mcio_ctrl.controller.ControllerAsync", mock_ctrl_async)
-
-    # Return objects that tests might need to access
-    return {
-        "ctrl_sync": mock_ctrl_sync,
-        "ctrl_async": mock_ctrl_async,
-    }
-
-
 def test_action_fixture_is_valid(
     default_mcio_env: mcio_env.MCioEnv, action_space_sample1: mcio_env.MCioAction
 ) -> None:
@@ -88,6 +53,44 @@ def test_env_with_commands(
 
     env.step(action_space_sample1, options={"commands": cmds})
     _check_send_action(send_action)
+
+
+def test_begin_reset_does_not_receive(mock_controller: dict[str, MagicMock]) -> None:
+    ctrl = mock_controller["ctrl_sync"].return_value
+    env = mcio_env.MCioEnv(types.RunOptions(mcio_mode=types.MCioMode.SYNC))
+
+    env.begin_reset()
+    ctrl.send_action.assert_called_once()
+    ctrl.recv_observation.assert_not_called()
+
+    env.end_reset()
+    ctrl.recv_observation.assert_called_once()
+
+
+def test_skip_steps_zero(mock_controller: dict[str, MagicMock]) -> None:
+    env = mcio_env.MCioEnv(types.RunOptions(mcio_mode=types.MCioMode.SYNC))
+    env.reset()
+    with pytest.raises(AssertionError):
+        env.skip_steps(0)
+
+
+@pytest.mark.xfail(strict=True, reason="begin_step() pending-action tracking not implemented")
+def test_end_step_without_begin_step(mock_controller: dict[str, MagicMock]) -> None:
+    env = mcio_env.MCioEnv(types.RunOptions(mcio_mode=types.MCioMode.SYNC))
+    env.reset()
+    with pytest.raises(AssertionError):
+        env.end_step()  # type: ignore[call-arg]
+
+
+@pytest.mark.xfail(strict=True, reason="begin_step() pending-action tracking not implemented")
+def test_begin_step_twice(
+    mock_controller: dict[str, MagicMock], action_space_sample1: mcio_env.MCioAction
+) -> None:
+    env = mcio_env.MCioEnv(types.RunOptions(mcio_mode=types.MCioMode.SYNC))
+    env.reset()
+    env.begin_step(action_space_sample1)
+    with pytest.raises(AssertionError):
+        env.begin_step(action_space_sample1)
 
 
 def test_action_to_packet(

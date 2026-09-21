@@ -174,20 +174,14 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
             self.terminated = True
         self.stats_cache.update_cache(packet)
 
-    def reset(
-        self,
-        seed: int | None = None,
-        *,
-        options: ResetOptions | None = None,  # type: ignore[override]
-    ) -> tuple[ObsType, dict[Any, Any]]:
-        # We need the following line to seed self.np_random
+    def begin_reset(
+            self, seed: int | None = None, options: ResetOptions | None = None
+    ) -> None:
+        """Connect/launch and send the reset action. Pair with end_reset()."""
         super().reset(seed=seed)
         options = options or ResetOptions()
-
-        # For multiple resets, close any previous connections, etc.
         self.close()
         self._reset_state()
-
         if self.run_options.instance_name is not None:
             self.launcher = instance.Launcher(self.run_options)
             self.launcher.launch(wait=False)
@@ -205,19 +199,40 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
 
         # The reset action will trigger an initial observation
         self._send_reset_action(options)
-        observation = self._get_obs()
 
+    def end_reset(self) -> tuple[ObsType, dict[Any, Any]]:
+        """Receive the observation produced by begin_reset()."""
+        observation = self._get_obs()
         assert self.last_frame is not None
         wh_mc = self.last_frame.shape[0:2]
         wh_env = (self.run_options.height, self.run_options.width)
         if wh_mc != wh_env:
             LOG.warning(f"Frame-Size-Mismatch env={wh_env} mcio={wh_mc}")
 
+        return observation, self._get_info()
+
+    def send_noop(self) -> None:
+        """Send an empty action (one skipped tick). Pair with recv_observation()."""
+        assert self.ctrl is not None
+        self.ctrl.send_action(network.ActionPacket())
+
+    def recv_observation(self) -> ObsType:
+        return self._get_obs()
+
+    def reset(
+        self,
+        seed: int | None = None,
+        *,
+        options: ResetOptions | None = None,  # type: ignore[override]
+    ) -> tuple[ObsType, dict[Any, Any]]:
+        """
+        Note: Must not be used on a client connected on a server using SYNC. Use MCioMultiEnv instead.
+        """
+        self.begin_reset(seed=seed, options=options)
+        observation, info = self.end_reset()
         if self.terminated:
             observation = self._reset_terminated_hack()
-
-        info = self._get_info()
-
+            info = self._get_info()
         return observation, info
 
     def _reset_terminated_hack(self, max_steps: int = 100) -> ObsType:
@@ -240,36 +255,41 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
 
         return observation
 
-    def step(
-        self,
-        action: ActType,
-        *,
-        options: ResetOptions | None = None,
-    ) -> tuple[ObsType, int, bool, bool, dict[Any, Any]]:
-        """Env step function. Includes extra options arg to allow command to be sent during step."""
+    def begin_step(
+            self, action: ActType, options: ResetOptions | None = None
+    ) -> None:
+        """Send the action. Does not receive the observation."""
         options = options or ResetOptions()
-
-        # Should we enforce this?
         assert not self.terminated, "Must call reset() after termination"
-
         self._send_action(action, options.get("commands"))
+
+    def end_step(
+            self, action: ActType
+    ) -> tuple[ObsType, int, bool, bool, dict[Any, Any]]:
+        """Receive the observation produced by the action sent in begin_step()."""
         observation = self._get_obs()
         reward, self.terminated, truncated = self._process_step(action, observation)
         info = self._get_info()
-
         return observation, reward, self.terminated, truncated, info
+
+    def step(
+            self, action: ActType, *, options: ResetOptions | None = None
+    ) -> tuple[ObsType, int, bool, bool, dict[Any, Any]]:
+        """Env step function. Includes extra options arg to allow command to be sent during step."""
+        self.begin_step(action, options)
+        return self.end_step(action)
 
     def skip_steps(
         self, n_steps: int
     ) -> tuple[ObsType, int, bool, bool, dict[Any, Any]]:
         """Send empty actions and return the final observation. Use to skip over
-        a number of steps/game ticks"""
-        assert self.ctrl is not None
-        pkt = network.ActionPacket()
-        for i in range(n_steps):
-            self.ctrl.send_action(pkt)
-            observation = self._get_obs()
-        # observation, reward, terminated, truncated, info
+        a number of steps/game ticks.
+        Note: Must not be used on a client connected on a server using SYNC. Use MCioMultiEnv instead.
+        """
+        assert n_steps > 0
+        for _ in range(n_steps):
+            self.send_noop()
+            observation = self.recv_observation()
         return observation, 0, self.terminated, False, {}
 
     # NDArray[np.uint8] shape = (height, width, channels)

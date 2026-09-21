@@ -1,11 +1,12 @@
 from gymnasium.envs.registration import register
 
-from . import base_env, mcio_env, minerl_env
+from . import base_env, mcio_env, minerl_env, multi_env
 
 __all__ = [
     "base_env",
     "mcio_env",
     "minerl_env",
+    "multi_env",
 ]
 
 register(
