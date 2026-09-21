@@ -21,7 +21,7 @@ from .cbor import MCioType
 
 LOG = logging.getLogger(__name__)
 
-MCIO_PROTOCOL_VERSION: Final[int] = 7
+MCIO_PROTOCOL_VERSION: Final[int] = 8
 
 T = TypeVar("T", bound=types.Option)
 
@@ -40,6 +40,9 @@ class ObservationPacket:
     last_action_sequence: int = (
         0  # This is the last action sequence processed by Minecraft before this observation was generated
     )
+    # Latest server tick whose updates the client had applied when this observation was taken.
+    # -1 if unknown (async mode, or no tick received yet in multiplayer sync).
+    server_tick: int = -1
     frame_sequence: int = 0  # Frame number since Minecraft started
 
     ## Observation ##
