@@ -27,7 +27,7 @@ class MCioMultiEnv(Generic[ObsType, ActType]):
         assert len(actions) == len(self.envs)
         assert options is None or len(options) == len(self.envs)
         options = options or [ResetOptions() for _ in self.envs]
-        assert not any(e.terminated for e in self.envs)
+        assert not self.any_terminated, "Episode over; call reset()"
         for env, action, opt in zip(self.envs, actions, options, strict=True):
             env.begin_step(action, opt)
 
