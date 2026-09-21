@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mcio_ctrl import types
+from mcio_ctrl import network, types
 from mcio_ctrl.envs import base_env, mcio_env, multi_env
 
 # All envs share the same mocked controller instance, so its mock_calls record
@@ -22,6 +22,18 @@ def _make_multi(n_envs: int = 2) -> multi_env.MCioMultiEnv[Any, Any]:
 
 def _io_calls(ctrl: MagicMock) -> list[str]:
     return [c[0] for c in ctrl.mock_calls if c[0] in (SEND, RECV)]
+
+
+def _sync_obs(last_action_seq: int, x: float) -> network.ObservationPacket:
+    return network.ObservationPacket(
+        mode=types.MCioMode.SYNC,
+        last_action_sequence=last_action_seq,
+        health=20.0,
+        frame=bytes(4 * 4 * 3),
+        frame_width=4,
+        frame_height=4,
+        player_pos=(x, 0.0, 0.0),
+    )
 
 
 def test_step_sends_all_before_receiving(
@@ -119,3 +131,22 @@ def test_reset_respawn_gives_up(mock_controller: dict[str, MagicMock]) -> None:
 
     with pytest.raises(RuntimeError):
         multi.reset(max_respawn_steps=3)
+
+
+def test_step_skips_stale_observation(
+    monkeypatch: pytest.MonkeyPatch, action_space_sample1: mcio_env.MCioAction
+) -> None:
+    conn_cls = MagicMock()
+    monkeypatch.setattr("mcio_ctrl.network._Connection", conn_cls)
+    conn_cls.return_value.recv_observation.side_effect = [
+        _sync_obs(1, 0.0),  # reset action (seq 1)
+        _sync_obs(2, 1.0),  # reply to the extra noop - never read, must be skipped
+        _sync_obs(3, 2.0),  # reply to the step (seq 3)
+    ]
+    multi = _make_multi(1)
+    multi.reset()
+    multi.envs[0].send_noop()  # seq 2, observation left unread
+
+    [(obs, *_)] = multi.step([action_space_sample1])
+
+    assert obs["pos"][0] == 2.0

@@ -53,19 +53,26 @@ class ControllerSync(ControllerCommon):
     def recv_observation(
         self, block: bool = True, timeout: float | None = None
     ) -> network.ObservationPacket:
-        """Receive observation. Always blocks - ignores block and timeout args"""
-        obs = self._mcio_conn.recv_observation(block=True)
-        if obs is None:
-            # Exiting or packet decode error
-            return network.ObservationPacket()
+        """Receive the observation for the most recently sent action. Observations
+        generated before Minecraft processed that action are discarded.
+        Always blocks - ignores block and timeout args"""
+        wait_seq = self._action_sequence_last_sent
+        while True:
+            obs = self._mcio_conn.recv_observation(block=True)
+            if obs is None:
+                return network.ObservationPacket()
 
-        if self.check_mode:
-            self.check_mode = False
-            mode = types.MCioMode.SYNC
-            if mode != obs.mode:
-                LOG.warning(f"Mode-Mismatch controller={mode} mcio={obs.mode}")
+            if self.check_mode:
+                self.check_mode = False
+                mode = types.MCioMode.SYNC
+                if mode != obs.mode:
+                    LOG.warning(f"Mode-Mismatch controller={mode} mcio={obs.mode}")
 
-        return obs
+            if obs.last_action_sequence >= wait_seq:
+                return obs
+            LOG.debug(
+                f"SKIPPING obs={obs.sequence} last_action={obs.last_action_sequence} < waiting={wait_seq}"
+            )
 
     def close(self) -> None:
         """Shut down the network connection"""

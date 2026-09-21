@@ -175,27 +175,24 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
         self.stats_cache.update_cache(packet)
 
     def begin_reset(
-        self, seed: int | None = None, options: ResetOptions | None = None
+        self,
+        seed: int | None = None,
+        options: ResetOptions | None = None,
+        *,
+        relaunch: bool = True,
     ) -> None:
-        """Connect/launch and send the reset action. Pair with end_reset()."""
+        """Send the reset action. Pair with end_reset().
+        relaunch=False resets over the existing connection: no close(), no relaunch.
+        Minecraft state is only reset by the commands in options."""
         super().reset(seed=seed)
         options = options or ResetOptions()
-        self.close()
-        self._reset_state()
-        if self.run_options.instance_name is not None:
-            self.launcher = instance.Launcher(self.run_options)
-            self.launcher.launch(wait=False)
-
-        if self.run_options.mcio_mode == types.MCioMode.ASYNC:
-            self.ctrl = controller.ControllerAsync(
-                action_port=self.run_options.action_port,
-                observation_port=self.run_options.observation_port,
-            )
+        if relaunch:
+            self.close()
         else:
-            self.ctrl = controller.ControllerSync(
-                action_port=self.run_options.action_port,
-                observation_port=self.run_options.observation_port,
-            )
+            assert self.ctrl is not None, "relaunch=False needs an open connection"
+        self._reset_state()
+        if relaunch:
+            self._connect()
 
         # The reset action will trigger an initial observation
         self._send_reset_action(options)
@@ -218,6 +215,22 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
 
     def recv_observation(self) -> ObsType:
         return self._get_obs()
+
+    def _connect(self) -> None:
+        """Launch Minecraft (if instance_name is set) and open the controller."""
+        if self.run_options.instance_name is not None:
+            self.launcher = instance.Launcher(self.run_options)
+            self.launcher.launch(wait=False)
+        if self.run_options.mcio_mode == types.MCioMode.ASYNC:
+            self.ctrl = controller.ControllerAsync(
+                action_port=self.run_options.action_port,
+                observation_port=self.run_options.observation_port,
+            )
+        else:
+            self.ctrl = controller.ControllerSync(
+                action_port=self.run_options.action_port,
+                observation_port=self.run_options.observation_port,
+            )
 
     def reset(
         self,
@@ -313,6 +326,10 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
             return
         assert self.gui is not None
         self.gui.show(self.last_frame)
+
+    def get_info(self) -> dict[Any, Any]:
+        """Public access to the info dict for multi-env drivers."""
+        return self._get_info()
 
     def close(self) -> None:
         """This supports multiple closes / resets"""

@@ -28,15 +28,27 @@ class MCioMultiEnv(Generic[ObsType, ActType]):
         assert options is None or len(options) == len(self.envs)
         options = options or [ResetOptions() for _ in self.envs]
         assert not any(e.terminated for e in self.envs)
-        for env, action, opt in zip(self.envs, actions, options):
+        for env, action, opt in zip(self.envs, actions, options, strict=True):
             env.begin_step(action, opt)
 
     def recv_steps(
         self,
         actions: Sequence[ActType],
     ) -> list[tuple[ObsType, int, bool, bool, dict[Any, Any]]]:
+        """Receive every env's step. If any agent terminated, the episode ends for all:
+        every env is marked terminated, and info["agent_terminated"] says who died."""
         assert len(actions) == len(self.envs)
-        return [env.end_step(action) for env, action in zip(self.envs, actions)]
+        results = [
+            env.end_step(action) for env, action in zip(self.envs, actions, strict=True)
+        ]
+        episode_over = any(term for _, _, term, _, _ in results)
+        if episode_over:
+            for env in self.envs:
+                env.terminated = True
+        return [
+            (obs, reward, episode_over, trunc, {**info, "agent_terminated": term})
+            for obs, reward, term, trunc, info in results
+        ]
 
     def step(
         self,
@@ -60,9 +72,13 @@ class MCioMultiEnv(Generic[ObsType, ActType]):
                 env.send_noop()
             observations = [env.recv_observation() for env in self.envs]
         return [
-            (obs, 0, env.terminated, False, {})
+            (obs, 0, env.terminated, False, env.get_info())
             for env, obs in zip(self.envs, observations, strict=True)
         ]
+
+    @property
+    def any_terminated(self) -> bool:
+        return any(env.terminated for env in self.envs)
 
     def reset(
         self,
@@ -70,26 +86,34 @@ class MCioMultiEnv(Generic[ObsType, ActType]):
         options: Sequence[ResetOptions] | None = None,
         max_respawn_steps: int = 100,
     ) -> list[tuple[ObsType, dict[Any, Any]]]:
-        """Reset every env together, then tick all of them until everyone has respawned."""
+        """Reset every env together. The first call launches/connects; later calls
+        reset over the existing connections (relaunching the LAN host drops the guest).
+        """
+        relaunch = any(env.ctrl is None for env in self.envs)
         seeds = seeds or [None] * len(self.envs)
         options = options or [ResetOptions() for _ in self.envs]
+        if not relaunch:
+            # Reset commands don't apply to a dead player
+            self._wait_for_respawn(max_respawn_steps)
         for env, seed, opt in zip(self.envs, seeds, options, strict=True):
-            env.begin_reset(seed, opt)
+            env.begin_reset(seed, opt, relaunch=relaunch)
         results = [env.end_reset() for env in self.envs]
 
-        # Lockstep replacement for per-env _reset_terminated_hack()
+        return self._wait_for_respawn(max_respawn_steps) or results
+
+    def _wait_for_respawn(
+        self, max_respawn_steps: int
+    ) -> list[tuple[ObsType, dict[Any, Any]]] | None:
+        """Tick all envs until every player is alive.
+        Returns the latest observations if any ticks were needed."""
+        results = None
         for _ in range(max_respawn_steps):
-            if not any(env.terminated for env in self.envs):
-                break
-            steps = self.skip_steps(1)
             for env in self.envs:
-                if env.health > 0.0:
+                if env.terminated and env.health > 0.0:
                     env.terminated = False
-            results = [
-                (obs, env._get_info()) for env, (obs, *_) in zip(self.envs, steps)
-            ]
-        else:
-            raise RuntimeError(
-                f"Environments remained terminated after {max_respawn_steps} steps."
-            )
-        return results
+            if not self.any_terminated:
+                return results
+            results = [(obs, info) for obs, _, _, _, info in self.skip_steps(1)]
+        raise RuntimeError(
+            f"Environments remained terminated after {max_respawn_steps} steps."
+        )
