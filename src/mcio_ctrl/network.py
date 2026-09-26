@@ -21,7 +21,7 @@ from .cbor import MCioType
 
 LOG = logging.getLogger(__name__)
 
-MCIO_PROTOCOL_VERSION: Final[int] = 8
+MCIO_PROTOCOL_VERSION: Final[int] = 9
 
 T = TypeVar("T", bound=types.Option)
 
@@ -59,6 +59,8 @@ class ObservationPacket:
     player_pos: tuple[float, float, float] = field(default=(0.0, 0.0, 0.0))
     player_pitch: float = 0
     player_yaw: float = 0
+    hits_landed: int = 0
+    crits_landed: int = 0
     inventory_main: list[types.InventorySlot] = field(default_factory=list)
     inventory_armor: list[types.InventorySlot] = field(default_factory=list)
     inventory_offhand: list[types.InventorySlot] = field(default_factory=list)
