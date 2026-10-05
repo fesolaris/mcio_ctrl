@@ -116,6 +116,10 @@ class ObservationPacket:
         frame = frame.copy()
         return frame
 
+    def has_frame(self) -> bool:
+        """False when the action for this observation requested no frame."""
+        return len(self.frame) > 0
+
     def get_frame_with_cursor(
         self, cursor_drawer: util.CursorDrawer | None = None
     ) -> NDArray[np.uint8]:
@@ -153,6 +157,12 @@ class ActionPacket:
     # List of (x, y) pairs. Using a list for consistency
     cursor_pos: list[tuple[float, float]] = field(default_factory=list)
     options: list[types.Option] = field(default_factory=list)  # Future use
+    # Ask Minecraft to omit the frame from this step's observation (it is still
+    # produced and sent). None = not sent on the wire, so Minecraft keeps its
+    # default (send the frame). Only useful when the caller discards the frame,
+    # e.g. the non-final tick of an action-repeat step. Requires a mod that
+    # understands the field; older mods reject unknown fields.
+    send_frame: bool | None = None
 
     def pack(self) -> bytes:
         return cbor.encode(self)

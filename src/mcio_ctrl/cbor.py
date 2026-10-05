@@ -58,7 +58,8 @@ def _object_hook(decoder: cbor2.CBORDecoder, obj_dict: dict[Any, Any]) -> Any:
 
 def typed_asdict(obj: Any) -> Any:
     """Like dataclass asdict, but annotates MCioType classes with type info.
-    Recursively walks the dataclass.
+    Recursively walks the dataclass. Fields set to None are omitted so that
+    optional protocol fields are only sent when explicitly set.
     """
     if is_dataclass(obj):
         cls = type(obj)
@@ -66,6 +67,7 @@ def typed_asdict(obj: Any) -> Any:
         result = {
             key: typed_asdict(getattr(obj, key))
             for key in (f.name for f in fields(obj))
+            if getattr(obj, key) is not None
         }
         if cls_name:
             result[MCIO_PROTOCOL_TYPE] = cls_name

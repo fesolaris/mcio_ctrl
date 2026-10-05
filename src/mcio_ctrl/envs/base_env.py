@@ -32,9 +32,17 @@ class ResetOptions(TypedDict, total=False):
         execute in Minecraft. You may want to use skip_steps() after commands to
         make sure they have taken effect. I've seen ~20 ticks before a "time
         set" command takes effect.
+    send_frame: bool
+        False asks Minecraft to omit the frame from this step's observation (the
+        observation is still produced and sent). Use it on steps whose frame the
+        caller discards, e.g. the non-final tick of an action-repeat step: it skips
+        the framebuffer readback, the frame serialization and the frame decode.
+        The environment keeps the previous frame in that case. Requires the MCio
+        mod to support the field; leave it unset for older mods.
     """
 
     commands: list[str]
+    send_frame: bool
 
 
 class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
@@ -140,9 +148,15 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
         # assert obs in self.observation_space
         return obs
 
-    def _send_action(self, action: ActType, commands: list[str] | None = None) -> None:
+    def _send_action(
+        self,
+        action: ActType,
+        commands: list[str] | None = None,
+        send_frame: bool | None = None,
+    ) -> None:
         # Call to subclass
         packet = self._action_to_packet(action, commands)
+        packet.send_frame = send_frame
         # assert action in self.action_space
         assert self.ctrl is not None
         self.ctrl.send_action(packet)
@@ -166,7 +180,13 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
 
     def _update_state(self, packet: network.ObservationPacket) -> None:
         """Update common state"""
-        self.last_frame = packet.get_frame_with_cursor()
+        if packet.has_frame():
+            self.last_frame = packet.get_frame_with_cursor()
+        elif self.last_frame is None:
+            # No frame captured yet (e.g. before the first render): keep the old
+            # invariant that last_frame is set, with the empty frame's shape.
+            self.last_frame = np.zeros((0, 0, 3), dtype=np.uint8)
+        # A later frame-less observation (action.send_frame=False) keeps the previous frame.
         self.last_cursor_pos = packet.cursor_pos
         self.health = packet.health
         # Automatically terminate if health goes to 0. Is this correct behavior?
@@ -272,7 +292,7 @@ class MCioBaseEnv(gym.Env[ObsType, ActType], Generic[ObsType, ActType], ABC):
         """Send the action. Does not receive the observation."""
         options = options or ResetOptions()
         assert not self.terminated, "Must call reset() after termination"
-        self._send_action(action, options.get("commands"))
+        self._send_action(action, options.get("commands"), options.get("send_frame"))
 
     def end_step(
         self, action: ActType
