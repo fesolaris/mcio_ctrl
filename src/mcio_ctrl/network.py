@@ -1,6 +1,7 @@
 """Packet definitions and low-level connection code."""
 
 import logging
+import os
 import pickle
 import pprint
 import threading
@@ -22,6 +23,11 @@ from .cbor import MCioType
 LOG = logging.getLogger(__name__)
 
 MCIO_PROTOCOL_VERSION: Final[int] = 9
+
+# Keep the last raw packets for debugging (memory: up to maxlen frames). Off by default
+# because it retains a copy of every observation (hundreds of KB per step) and costs
+# time in the step loop.
+DEBUG_PKTS_ENABLED: bool = bool(os.environ.get("MCIO_DEBUG_PKTS"))
 
 T = TypeVar("T", bound=types.Option)
 
@@ -251,7 +257,8 @@ class _Connection:
         """
         pbytes = action.pack()
         self._last_action_pkt = action
-        self._debug_action_pkts.append(pbytes)
+        if DEBUG_PKTS_ENABLED:
+            self._debug_action_pkts.append(pbytes)
         self.send_counter.count()
         try:
             self.action_socket.send(pbytes, zmq.DONTWAIT)
@@ -287,9 +294,11 @@ class _Connection:
                 # This may also return None if there was an unpack error.
                 observation = ObservationPacket.unpack(pbytes)
                 self._last_observation_pkt = observation
-                self._debug_observation_pkts.append(pbytes)
+                if DEBUG_PKTS_ENABLED:
+                    self._debug_observation_pkts.append(pbytes)
                 self.recv_counter.count()
-                LOG.debug(observation)
+                if LOG.isEnabledFor(logging.DEBUG):
+                    LOG.debug(observation)
                 return observation
 
         # Loop exited
